@@ -1,16 +1,162 @@
 name: Build APK
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Buat proyek Android
+        run: |
+          set -e
+          mkdir -p "$(dirname 'app/build.gradle')"
+          cat > 'app/build.gradle' <<'EOF_FILE'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.mycompany.fintrackid'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.mycompany.fintrackid"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 101
+                  versionName "1.0.1"
+                  // Ganti URL ini jika alamat web berubah
+                  buildConfigField "String", "APP_URL", "\"https://financetrackid.netlify.app/\""
+              }
+              buildFeatures { buildConfig true }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+          }
+          EOF_FILE
+          mkdir -p "$(dirname 'app/src/main/AndroidManifest.xml')"
+          cat > 'app/src/main/AndroidManifest.xml' <<'EOF_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+              <application
+                  android:label="FinTrackID"
+                  android:icon="@mipmap/ic_launcher"
+                  android:allowBackup="true"
+                  android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_FILE
+          mkdir -p "$(dirname 'app/src/main/assets/error.html')"
+          cat > 'app/src/main/assets/error.html' <<'EOF_FILE'
+          <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+          <style>body{font-family:sans-serif;text-align:center;padding:60px 24px;color:#26221A;background:#F4F7F5}
+          button{margin-top:20px;padding:12px 24px;border:0;border-radius:8px;background:#2F4B3C;color:#fff;font-size:15px}</style></head>
+          <body><h2>Tidak ada koneksi</h2><p>Periksa internet Anda, lalu coba lagi.</p>
+          <button onclick="location.href='https://financetrackid.netlify.app/'">Coba lagi</button></body></html>
+          EOF_FILE
+          mkdir -p "$(dirname 'app/src/main/java/com/mycompany/fintrackid/MainActivity.java')"
+          cat > 'app/src/main/java/com/mycompany/fintrackid/MainActivity.java' <<'EOF_FILE'
+          package com.mycompany.fintrackid;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Bitmap;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView web;
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  web = new WebView(this);
+                  setContentView(web);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  final String host = Uri.parse(BuildConfig.APP_URL).getHost();
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          Uri u = r.getUrl();
+                          if (host.equals(u.getHost())) return false;
+                          try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) {}
+                          return true;
+                      }
+                      @Override
+                      public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                          if (r.isForMainFrame()) v.loadUrl("file:///android_asset/error.html");
+                      }
+                  });
+                  if (b != null) web.restoreState(b); else web.loadUrl(BuildConfig.APP_URL);
+              }
+
+              @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
+
+              @Override
+              public void onBackPressed() {
+                  if (web.canGoBack()) web.goBack(); else super.onBackPressed();
+              }
+          }
+          EOF_FILE
+          mkdir -p "$(dirname 'app/src/main/res/drawable/ic_fg.xml')"
+          cat > 'app/src/main/res/drawable/ic_fg.xml' <<'EOF_FILE'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#F8F5EE" android:pathData="M30,70h8V54h-8zM46,70h8V42h-8zM62,70h8V32h-8z"/>
+              <path android:fillColor="#B8862F" android:pathData="M28,74h52v4H28z"/>
+          </vector>
+          EOF_FILE
+          mkdir -p "$(dirname 'app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml')"
+          cat > 'app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml' <<'EOF_FILE'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_bg"/>
+              <foreground android:drawable="@drawable/ic_fg"/>
+          </adaptive-icon>
+          EOF_FILE
+          mkdir -p "$(dirname 'app/src/main/res/values/colors.xml')"
+          cat > 'app/src/main/res/values/colors.xml' <<'EOF_FILE'
+          <resources><color name="ic_bg">#2F4B3C</color></resources>
+          EOF_FILE
+          mkdir -p "$(dirname 'build.gradle')"
+          cat > 'build.gradle' <<'EOF_FILE'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF_FILE
+          mkdir -p "$(dirname 'gradle.properties')"
+          cat > 'gradle.properties' <<'EOF_FILE'
+          android.useAndroidX=true
+          EOF_FILE
+          mkdir -p "$(dirname 'settings.gradle')"
+          cat > 'settings.gradle' <<'EOF_FILE'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "FinTrackID"
+          include ':app'
+          EOF_FILE
+          ls -R app/src | head -40
       - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: 17 }
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: android-actions/setup-android@v3
+      - name: Pasang platform Android
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: 8.7 }
-      - run: gradle assembleDebug
+        with:
+          gradle-version: '8.7'
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: FinTrackID-apk

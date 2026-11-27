@@ -6,6 +6,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Buat proyek Android
         run: |
           set -e
@@ -19,12 +20,9 @@ jobs:
                   applicationId "com.mycompany.fintrackid"
                   minSdk 24
                   targetSdk 34
-                  versionCode 101
-                  versionName "1.0.1"
-                  // Ganti URL ini jika alamat web berubah
-                  buildConfigField "String", "APP_URL", "\"https://financetrackid.netlify.app/\""
+                  versionCode 200
+                  versionName "2.0"
               }
-              buildFeatures { buildConfig true }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
           }
           EOF_FILE
@@ -32,8 +30,6 @@ jobs:
           cat > 'app/src/main/AndroidManifest.xml' <<'EOF_FILE'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
               <application
                   android:label="FinTrackID"
                   android:icon="@mipmap/ic_launcher"
@@ -50,63 +46,118 @@ jobs:
               </application>
           </manifest>
           EOF_FILE
-          mkdir -p "$(dirname 'app/src/main/assets/error.html')"
-          cat > 'app/src/main/assets/error.html' <<'EOF_FILE'
-          <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-          <style>body{font-family:sans-serif;text-align:center;padding:60px 24px;color:#26221A;background:#F4F7F5}
-          button{margin-top:20px;padding:12px 24px;border:0;border-radius:8px;background:#2F4B3C;color:#fff;font-size:15px}</style></head>
-          <body><h2>Tidak ada koneksi</h2><p>Periksa internet Anda, lalu coba lagi.</p>
-          <button onclick="location.href='https://financetrackid.netlify.app/'">Coba lagi</button></body></html>
-          EOF_FILE
           mkdir -p "$(dirname 'app/src/main/java/com/mycompany/fintrackid/MainActivity.java')"
           cat > 'app/src/main/java/com/mycompany/fintrackid/MainActivity.java' <<'EOF_FILE'
           package com.mycompany.fintrackid;
 
           import android.app.Activity;
+          import android.app.AlertDialog;
           import android.content.Intent;
-          import android.graphics.Bitmap;
+          import android.graphics.Color;
           import android.net.Uri;
           import android.os.Bundle;
-          import android.webkit.WebResourceError;
-          import android.webkit.WebResourceRequest;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.JsResult;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          import java.io.OutputStream;
+          import java.nio.charset.StandardCharsets;
 
           public class MainActivity extends Activity {
+              private static final int REQ_FILE = 1, REQ_SAVE = 2;
               private WebView web;
+              private ValueCallback<Uri[]> fileCallback;
+              private byte[] pendingSave;
 
               @Override
               protected void onCreate(Bundle b) {
                   super.onCreate(b);
+                  getWindow().setStatusBarColor(Color.parseColor("#F4F5FB"));
                   web = new WebView(this);
                   setContentView(web);
                   WebSettings s = web.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
-                  s.setDatabaseEnabled(true);
-                  final String host = Uri.parse(BuildConfig.APP_URL).getHost();
-                  web.setWebViewClient(new WebViewClient() {
+                  s.setAllowFileAccess(true);
+                  web.setWebViewClient(new WebViewClient());
+                  web.setWebChromeClient(new WebChromeClient() {
                       @Override
-                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                          Uri u = r.getUrl();
-                          if (host.equals(u.getHost())) return false;
-                          try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) {}
+                      public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                          if (fileCallback != null) fileCallback.onReceiveValue(null);
+                          fileCallback = cb;
+                          Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                          i.addCategory(Intent.CATEGORY_OPENABLE);
+                          i.setType("*/*");
+                          try {
+                              startActivityForResult(Intent.createChooser(i, "Pilih file cadangan"), REQ_FILE);
+                          } catch (Exception e) { fileCallback = null; return false; }
                           return true;
                       }
                       @Override
-                      public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
-                          if (r.isForMainFrame()) v.loadUrl("file:///android_asset/error.html");
+                      public boolean onJsConfirm(WebView v, String url, String msg, final JsResult r) {
+                          new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                              .setPositiveButton("OK", (d, w) -> r.confirm())
+                              .setNegativeButton("Batal", (d, w) -> r.cancel())
+                              .setOnCancelListener(d -> r.cancel()).show();
+                          return true;
+                      }
+                      @Override
+                      public boolean onJsAlert(WebView v, String url, String msg, final JsResult r) {
+                          new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                              .setPositiveButton("OK", (d, w) -> r.confirm())
+                              .setOnCancelListener(d -> r.confirm()).show();
+                          return true;
                       }
                   });
-                  if (b != null) web.restoreState(b); else web.loadUrl(BuildConfig.APP_URL);
+                  web.addJavascriptInterface(new Bridge(), "AndroidBridge");
+                  if (b != null) web.restoreState(b); else web.loadUrl("file:///android_asset/index.html");
               }
 
               @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
 
               @Override
               public void onBackPressed() {
-                  if (web.canGoBack()) web.goBack(); else super.onBackPressed();
+                  web.evaluateJavascript("(window.handleBack&&window.handleBack())?'1':'0'", v -> {
+                      if (!"\"1\"".equals(v)) finish();
+                  });
+              }
+
+              @Override
+              protected void onActivityResult(int req, int res, Intent data) {
+                  super.onActivityResult(req, res, data);
+                  if (req == REQ_FILE && fileCallback != null) {
+                      Uri[] r = (res == RESULT_OK && data != null && data.getData() != null) ? new Uri[]{data.getData()} : null;
+                      fileCallback.onReceiveValue(r);
+                      fileCallback = null;
+                  } else if (req == REQ_SAVE) {
+                      if (res == RESULT_OK && data != null && data.getData() != null && pendingSave != null) {
+                          try (OutputStream os = getContentResolver().openOutputStream(data.getData())) {
+                              os.write(pendingSave);
+                              Toast.makeText(this, "File berhasil disimpan", Toast.LENGTH_SHORT).show();
+                          } catch (Exception e) {
+                              Toast.makeText(this, "Gagal menyimpan file", Toast.LENGTH_SHORT).show();
+                          }
+                      }
+                      pendingSave = null;
+                  }
+              }
+
+              class Bridge {
+                  @JavascriptInterface
+                  public void saveFile(final String name, final String mime, final String content) {
+                      runOnUiThread(() -> {
+                          pendingSave = content.getBytes(StandardCharsets.UTF_8);
+                          Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                          i.addCategory(Intent.CATEGORY_OPENABLE);
+                          i.setType(mime);
+                          i.putExtra(Intent.EXTRA_TITLE, name);
+                          startActivityForResult(i, REQ_SAVE);
+                      });
+                  }
               }
           }
           EOF_FILE
@@ -144,7 +195,24 @@ jobs:
           rootProject.name = "FinTrackID"
           include ':app'
           EOF_FILE
-          ls -R app/src | head -40
+      - name: Pasang isi aplikasi (index.html)
+        run: |
+          if [ ! -f index.html ]; then
+            echo "::error::File index.html tidak ada di halaman utama repository. Upload index.html dulu."
+            exit 1
+          fi
+          mkdir -p app/src/main/assets
+          cp index.html app/src/main/assets/index.html
+      - name: Pasang logo kustom (jika ada logo.png)
+        run: |
+          if [ -f logo.png ]; then
+            rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+            mkdir -p app/src/main/res/mipmap-xxxhdpi
+            cp logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            echo "Logo kustom dipakai"
+          else
+            echo "logo.png tidak ada, memakai logo bawaan"
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

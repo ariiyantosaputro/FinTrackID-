@@ -1,0 +1,7 @@
+1. Buka github.com > New repository (nama bebas, mis. fintrackid).
+2. Klik "uploading an existing file", upload SEMUA isi folder ini
+   (pastikan folder .github ikut), lalu Commit.
+3. Buka tab Actions > "Build APK" (jalan otomatis; atau Run workflow).
+4. Setelah centang hijau, buka run tersebut > Artifacts > FinTrackID-apk.
+5. Ekstrak zip, pasang app-debug.apk di HP.
+Ubah alamat web: app/build.gradle (APP_URL) dan app/src/main/assets/error.html.

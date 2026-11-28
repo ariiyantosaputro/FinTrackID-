@@ -20,8 +20,8 @@ jobs:
                   applicationId "com.mycompany.fintrackid"
                   minSdk 24
                   targetSdk 34
-                  versionCode 200
-                  versionName "2.0"
+                  versionCode 210
+                  versionName "2.1"
               }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
           }
@@ -55,7 +55,9 @@ jobs:
           import android.content.Intent;
           import android.graphics.Color;
           import android.net.Uri;
+          import android.os.Build;
           import android.os.Bundle;
+          import android.view.View;
           import android.webkit.JavascriptInterface;
           import android.webkit.JsResult;
           import android.webkit.ValueCallback;
@@ -76,13 +78,21 @@ jobs:
               @Override
               protected void onCreate(Bundle b) {
                   super.onCreate(b);
-                  getWindow().setStatusBarColor(Color.parseColor("#F4F5FB"));
                   web = new WebView(this);
                   setContentView(web);
+                  applyTheme(getSharedPreferences("ui", 0).getBoolean("dark", false));
                   WebSettings s = web.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
                   s.setAllowFileAccess(true);
+                  s.setSupportZoom(false);
+                  s.setBuiltInZoomControls(false);
+                  s.setDisplayZoomControls(false);
+                  s.setUseWideViewPort(true);
+                  s.setLoadWithOverviewMode(false);
+                  s.setTextZoom(100);
+                  web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                  web.setHorizontalScrollBarEnabled(false);
                   web.setWebViewClient(new WebViewClient());
                   web.setWebChromeClient(new WebChromeClient() {
                       @Override
@@ -117,6 +127,20 @@ jobs:
                   if (b != null) web.restoreState(b); else web.loadUrl("file:///android_asset/index.html");
               }
 
+              private void applyTheme(boolean dark) {
+                  int bg = Color.parseColor(dark ? "#0B0F1D" : "#F4F5FB");
+                  int nav = Color.parseColor(dark ? "#161B2E" : "#FFFFFF");
+                  getWindow().setStatusBarColor(bg);
+                  getWindow().setNavigationBarColor(nav);
+                  if (web != null) web.setBackgroundColor(bg);
+                  View d = getWindow().getDecorView();
+                  int f = d.getSystemUiVisibility();
+                  int light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                  if (Build.VERSION.SDK_INT >= 26) light |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                  d.setSystemUiVisibility(dark ? (f & ~light) : (f | light));
+                  getSharedPreferences("ui", 0).edit().putBoolean("dark", dark).apply();
+              }
+
               @Override protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
 
               @Override
@@ -147,6 +171,11 @@ jobs:
               }
 
               class Bridge {
+                  @JavascriptInterface
+                  public void setTheme(final boolean dark) {
+                      runOnUiThread(() -> applyTheme(dark));
+                  }
+
                   @JavascriptInterface
                   public void saveFile(final String name, final String mime, final String content) {
                       runOnUiThread(() -> {
